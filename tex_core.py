@@ -65,27 +65,34 @@ def _pack_file_worker(args):
         return (two, checksum, size, name_len, raw_name, im_type, width, height, full_bytes)
 
 
-def _swap_bgr_worker(img):
-    if img.mode == 'RGB':
-        r, g, b = img.split()
-        return Image.merge('RGB', (b, g, r))
-    elif img.mode == 'RGBA':
-        r, g, b, a = img.split()
-        return Image.merge('RGBA', (b, g, r, a))
-    elif img.mode == 'P':
-        palette_bytes = img.getpalette()
-        if palette_bytes:
-            new_palette = []
-            for i in range(0, len(palette_bytes), 3):
-                r = palette_bytes[i]
-                g = palette_bytes[i+1]
-                b = palette_bytes[i+2]
-                new_palette.extend([b, g, r])
-            
-            img_swapped = img.copy()
-            img_swapped.putpalette(new_palette)
-            return img_swapped
-    return img
+def _swap_bgr_worker(file_path):
+    try:
+        with Image.open(file_path) as img:
+            if img.mode == 'RGB':
+                r, g, b = img.split()
+                swapped = Image.merge('RGB', (b, g, r))
+            elif img.mode == 'RGBA':
+                r, g, b, a = img.split()
+                swapped = Image.merge('RGBA', (b, g, r, a))
+            elif img.mode == 'P':
+                palette_bytes = img.getpalette()
+                if palette_bytes:
+                    new_palette = []
+                    for i in range(0, len(palette_bytes), 3):
+                        r = palette_bytes[i]
+                        g = palette_bytes[i+1]
+                        b = palette_bytes[i+2]
+                        new_palette.extend([b, g, r])
+                    swapped = img.copy()
+                    swapped.putpalette(new_palette)
+                else:
+                    swapped = img
+            else:
+                swapped = img
+
+            swapped.save(file_path)
+    except Exception as e:
+        print(f"Error swapping BGR for {file_path}: {e}")
 
 
 def _save_unpacked_image_worker(args):
