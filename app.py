@@ -23,12 +23,26 @@ def _convert_image_worker(args):
     img_p, out_img_path, chosen_ext, chosen_bpp = args
     try:
         with Image.open(img_p) as img:
-            if chosen_ext in ('jpg', 'jpeg') and img.mode in ('RGBA', 'LA', 'P'):
-                img = img.convert('RGB')
-            elif chosen_bpp == '32' and img.mode != 'RGBA':
-                img = img.convert('RGBA')
-            elif chosen_bpp == '24' and img.mode != 'RGB':
-                img = img.convert('RGB')
+            # Safely handle JPEG format restrictions (JPEG does not support transparency/RGBA)
+            if chosen_ext in ('jpg', 'jpeg'):
+                if img.mode in ('RGBA', 'LA'):
+                    bg = Image.new('RGB', img.size, (255, 255, 255))
+                    if img.mode == 'RGBA':
+                        bg.paste(img, mask=img.split()[3])
+                    else:
+                        bg.paste(img)
+                    img = bg
+                elif img.mode != 'RGB':
+                    img = img.convert('RGB')
+            else:
+                if chosen_bpp == '32' and img.mode != 'RGBA':
+                    img = img.convert('RGBA')
+                elif chosen_bpp == '24' and img.mode != 'RGB':
+                    img = img.convert('RGB')
+                elif chosen_bpp == '8' and img.mode != 'P':
+                    img = img.convert('P', palette=Image.Palette.ADAPTIVE, colors=256)
+                elif chosen_bpp == 'Alpha' and img.mode != 'L':
+                    img = img.convert('L')
             img.save(out_img_path)
         return True, None
     except Exception as e:
@@ -626,7 +640,13 @@ class ModernMMPApp(QMainWindow):
                     f.seek(size - 12, 1)
                     
                     mode_name = self.mmp_tool.getmode.get(im_type, 'RAW')
-                    ext_name = "BMP" if mode_name in ('RGBA', 'RGB', 'P', 'RAW') else ("JPG" if 'JPG' in mode_name else "PNG")
+
+                    if mode_name in ('RGBA', 'RGB', 'P', 'RAW', 'L'):
+                        ext_name = "BMP"
+                    elif 'JPG' in mode_name or 'JPEG' in mode_name:
+                        ext_name = "JPG"
+                    else:
+                        ext_name = "PNG"
 
                     texture_child = QTreeWidgetItem(parent_item)
                     texture_child.setText(0, f"🖼️ {img_name}")
@@ -764,7 +784,6 @@ class ModernMMPApp(QMainWindow):
         is_overwrite = self.overwrite_check.isChecked()
 
         def worker_task(log):
-            # 1. Selective MMP Packing
             for mmp_path, selection in mmp_tasks.items():
                 if selection:
                     base_dir = self.get_output_base_dir(mmp_path)
@@ -777,7 +796,6 @@ class ModernMMPApp(QMainWindow):
                         self.mmp_tool.packing(paths=[temp_dir], bpp=bpp, overwrite=True, output_mmp=final_mmp)
                         log(f"Success: Selective pack -> {os.path.basename(final_mmp)}")
 
-            # 2. Entire Folder Packing
             for folder_path in folders:
                 base_dir = self.get_output_base_dir(folder_path)
                 folder_name = os.path.basename(folder_path.rstrip('/\\'))
@@ -787,7 +805,6 @@ class ModernMMPApp(QMainWindow):
                 log(f"Packing folder {folder_name} -> {final_mmp}...")
                 self.mmp_tool.packing(paths=[folder_path], bpp=bpp, overwrite=is_overwrite, output_mmp=final_mmp)
 
-            # 3. Specific Subsets of Images inside Folders
             for folder_path, imgs in folder_images.items():
                 if folder_path not in folders and imgs:
                     base_dir = self.get_output_base_dir(folder_path)
@@ -803,7 +820,6 @@ class ModernMMPApp(QMainWindow):
                         self.mmp_tool.packing(paths=[staging_folder], bpp=bpp, overwrite=True, output_mmp=final_mmp)
                         log(f"Success: Packed folder subset -> {os.path.basename(final_mmp)}")
 
-            # 4. Standalone Images
             if standalone_images:
                 grouped_standalone = defaultdict(list)
                 for img_p in standalone_images:
@@ -883,7 +899,6 @@ class ModernMMPApp(QMainWindow):
         is_overwrite = self.overwrite_check.isChecked()
 
         def worker_task(log):
-            # 1. Folder images
             for folder_path, img_set in folder_images.items():
                 if img_set:
                     base_dir = self.get_output_base_dir(folder_path)
@@ -910,7 +925,6 @@ class ModernMMPApp(QMainWindow):
                     for ok, err in results:
                         if not ok: log(err)
 
-            # 2. Standalone images
             if standalone_images:
                 grouped_standalone = defaultdict(list)
                 for img_p in standalone_images:
@@ -940,7 +954,6 @@ class ModernMMPApp(QMainWindow):
                     for ok, err in results:
                         if not ok: log(err)
 
-            # 3. MMP Archives
             for mmp_path, selection in mmp_tasks.items():
                 mmp_name = os.path.splitext(os.path.basename(mmp_path))[0]
                 base_dir = self.get_output_base_dir(mmp_path)
@@ -1007,7 +1020,6 @@ class ModernMMPApp(QMainWindow):
         is_overwrite = self.overwrite_check.isChecked()
 
         def worker_task(log):
-            # 1. Folder images
             for folder_path, img_set in folder_images.items():
                 if img_set:
                     base_dir = self.get_output_base_dir(folder_path)
@@ -1032,7 +1044,6 @@ class ModernMMPApp(QMainWindow):
 
                     self.mmp_tool.swapBGR(paths=dest_paths, cmd=False)
 
-            # 2. Standalone images
             if standalone_images:
                 grouped_standalone = defaultdict(list)
                 for img_p in standalone_images:
@@ -1059,7 +1070,6 @@ class ModernMMPApp(QMainWindow):
 
                     self.mmp_tool.swapBGR(paths=dest_paths, cmd=False)
 
-            # 3. MMP Archives
             for mmp_path, selection in mmp_tasks.items():
                 mmp_name = os.path.splitext(os.path.basename(mmp_path))[0]
                 base_dir = self.get_output_base_dir(mmp_path)

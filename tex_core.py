@@ -30,15 +30,15 @@ def str_codec(str_, method='decode'):
     return f"Texture_{crc32(str_)}"
 
 
-def image_convert(img, mode):
-    if img.mode != mode:
-        if mode == 'P':
-            if img.mode == 'RGBA':
-                img = img.convert('RGB')
-            return img.convert(mode, palette=Image.Palette.ADAPTIVE, colors=256)
-        else:
-            return img.convert(mode)
-    return img
+def image_convert(img, mode, palette=None):
+    if mode == 'P':
+        if img.mode == 'RGBA':
+            alpha = img.split()[-1]
+            img_rgb = img.convert('RGB')
+            img_p = img_rgb.convert('P', palette=Image.Palette.ADAPTIVE, colors=255)
+            return img_p
+        return img.convert(mode, palette=Image.Palette.ADAPTIVE, colors=256)
+    return img.convert(mode)
 
 
 # =========================================================================
@@ -65,21 +65,27 @@ def _pack_file_worker(args):
         return (two, checksum, size, name_len, raw_name, im_type, width, height, full_bytes)
 
 
-def _swap_bgr_worker(p):
-    valid_format = ('.bmp', '.png', '.jpg', '.jpeg', '.webp')
-    if os.path.isfile(p) and p.lower().endswith(valid_format):
-        try:
-            with Image.open(p) as img:
-                if img.mode == 'RGB':
-                    r, g, b = img.split()
-                    swapped = Image.merge('RGB', (b, g, r))
-                    swapped.save(p)
-                elif img.mode == 'RGBA':
-                    r, g, b, a = img.split()
-                    swapped = Image.merge('RGBA', (b, g, r, a))
-                    swapped.save(p)
-        except Exception as e:
-            print(f"Error swapping BGR for {p}: {e}")
+def _swap_bgr_worker(img):
+    if img.mode == 'RGB':
+        r, g, b = img.split()
+        return Image.merge('RGB', (b, g, r))
+    elif img.mode == 'RGBA':
+        r, g, b, a = img.split()
+        return Image.merge('RGBA', (b, g, r, a))
+    elif img.mode == 'P':
+        palette_bytes = img.getpalette()
+        if palette_bytes:
+            new_palette = []
+            for i in range(0, len(palette_bytes), 3):
+                r = palette_bytes[i]
+                g = palette_bytes[i+1]
+                b = palette_bytes[i+2]
+                new_palette.extend([b, g, r])
+            
+            img_swapped = img.copy()
+            img_swapped.putpalette(new_palette)
+            return img_swapped
+    return img
 
 
 def _save_unpacked_image_worker(args):
